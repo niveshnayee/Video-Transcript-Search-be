@@ -1,32 +1,32 @@
-from typing import List  # Make sure to import List
-from app.database import videos_collection
+from typing import List
 from fastapi import APIRouter, HTTPException, Form, BackgroundTasks
-from app.services.video_processing import  process_video_from_url
+from app.services.video_processing import VideoProcessingService  # Updated import
 from app.models.video_models import SearchQuery, VideoCreate, VideoResponse
 from urllib.parse import urlparse, parse_qs
 from fastapi.responses import JSONResponse
 from google.cloud import storage
 import os
+from dotenv import load_dotenv
 import uuid
 from datetime import timedelta
 from bson import ObjectId
+from celery.result import AsyncResult
+from app.database import MongoDBClient
 
 
 
+# Initialize MongoDB client
+db_client = MongoDBClient()
+videos_collection = db_client.get_collection("videos")
 
-
-
+load_dotenv()  # Load environment variables from .env file
 router = APIRouter()
 
-# Temporary in-memory storage
-# video_data = {"transcript": None, "method": None, "url": None}
 
 # Set Google Cloud credentials (ensure the key file is in your working directory)
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "PATH-API-KEY"
-
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 # Define your bucket name
-BUCKET_NAME = "NAME"
-
+BUCKET_NAME = os.getenv("BUCKET_NAME")
 # Initialize the Google Cloud Storage client
 storage_client = storage.Client()
 
@@ -61,22 +61,7 @@ async def get_all_videos():
         )
 
 
-@router.get("/video/stream/{file_id}")
-async def stream_video(file_id: str):
-    try:
-        # Convert the file_id from string to ObjectId (MongoDB format)
-        file_id_obj = ObjectId(file_id)
 
-        # Retrieve the video file from GridFS using the ObjectId
-        file = fs.get(file_id_obj)
-
-        # Return the file as a streaming response with correct media type
-        return StreamingResponse(file, media_type="video/mp4")
-
-    except gridfs.errors.NoFile:
-        raise HTTPException(status_code=404, detail="File not found")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching video: {str(e)}")
 
 @router.get("/video/{video_id}")
 async def get_video_details(video_id: str):
@@ -116,7 +101,7 @@ async def get_video_details(video_id: str):
 
 
 @router.delete("/delete_video/{video_id}")
-async def delete_video(video_id: str):
+def delete_video(video_id: str):
     try:
         try:
             video_id_obj = ObjectId(video_id)  # Convert video_id to ObjectId
@@ -138,7 +123,7 @@ async def delete_video(video_id: str):
         blob.delete()  # Delete the blob from GCS
         
         # Step 4: Delete the video metadata from MongoDB
-        videos_collection.delete_one({"_id": uuid.UUID(video_id)})
+        videos_collection.delete_one({"_id": video_id_obj})
         
         return {"success": True, "message": "Video deleted successfully"}
 
@@ -162,7 +147,7 @@ def generate_signed_url_for_upload(bucket_name, object_name, expiration_minutes:
 
 
 @router.post("/generate_upload_url")
-async def get_signed_url(video_name: str = Form(...)):
+def get_signed_url(video_name: str = Form(...)):
     """Generate a signed URL so the frontend can upload directly to GCS."""
     unique_filename = f"{uuid.uuid4()}_{video_name}"
     signed_url = generate_signed_url_for_upload(BUCKET_NAME, unique_filename)
@@ -173,8 +158,8 @@ async def get_signed_url(video_name: str = Form(...)):
 def delete_gcs_file(bucket_name, file_name):
     """Deletes a file from Google Cloud Storage."""
 
-    bucket = storage_client.bucket(bucket_name)
-    blob = bucket.blob(file_name)
+    bucket =  storage_client.bucket(bucket_name)
+    blob =  bucket.blob(file_name)
     
     blob.delete()
     print(f"Deleted {file_name} from {bucket_name}")
@@ -183,7 +168,7 @@ def delete_gcs_file(bucket_name, file_name):
 # delete_gcs_file("your-bucket-name", "your-object-name")
 
 @router.post("/upload_video", response_model=VideoResponse)
-async def upload_video(
+def upload_video(
     background_tasks: BackgroundTasks,
     video_name: str = Form(...),
     video_category: str = Form(...),
@@ -191,7 +176,7 @@ async def upload_video(
     fileId: str = Form(...)
     ):
     """
-    Upload a video file, store it in Google Cloud Storage, and save metadata to MongoDB.
+    Upload a video file, store it in Google Cloud Storage(in frontend), and save metadata to MongoDB.
     """
     try:
         if not fileId:
@@ -208,13 +193,17 @@ async def upload_video(
             description = video_description,
             url=video_url,
             file_id=fileId,
+            status = "queued"  # Initial status
         )
         video_dict = video_data.dict()
         inserted_id = videos_collection.insert_one(video_dict).inserted_id
 
 
         # Step 5: Start background task for transcription
-        background_tasks.add_task(process_video_from_url, str(inserted_id), video_url)
+        # background_tasks.add_task(process_video_from_url, str(inserted_id), video_url)
+
+         # Start Celery task
+        task = VideoProcessingService.process_video_from_url.apply_async(args=[str(inserted_id), video_url])  # Updated task call
 
          # Return success response
         return JSONResponse(
@@ -228,24 +217,25 @@ async def upload_video(
                     "category": video_category,
                     "description": video_description,
                     "url": video_url,
+                    "task_id": task.id
                 },
             ).dict(),
         )
     except HTTPException as e:
         # Delete the file from GCS if an error occurs
-        await delete_gcs_file(BUCKET_NAME, fileId)
+        delete_gcs_file(BUCKET_NAME, fileId)
         return JSONResponse(
             status_code=e.status_code,
             content=VideoResponse(
                 success=False,
-                message=e.detail,
+                message=f"An error occurred: {str(e)}",
                 data=None,
             ).dict(),
         )
 
     except Exception as e:
         # Delete the file from GCS if an error occurs
-        await delete_gcs_file(BUCKET_NAME, fileId)
+        delete_gcs_file(BUCKET_NAME, fileId)
         return JSONResponse(
             status_code=500,
             content=VideoResponse(
@@ -323,12 +313,18 @@ def seconds_to_video_time(seconds):
 
 @router.post("/transcribe_video")
 def transcribe(file_id: str, video_url: str):
-    return process_video_from_url(file_id, video_url )
+    task = VideoProcessingService.process_video_from_url.apply_async(args=[file_id, video_url])  # Updated task call
+    return {"task_id": task.id}
 
 @router.post("/delete_GCS_Video")
 def delete_GCS_video(fileName : str):
     return delete_gcs_file(BUCKET_NAME, fileName)
 
+@router.get("/task_status/{task_id}")
+async def get_task_status(task_id: str):
+    """Check Celery task status."""
+    task_result = AsyncResult(task_id)
+    return {"task_id": task_id, "status": task_result.status}
 
 {
         # Generate a unique filename for the video
