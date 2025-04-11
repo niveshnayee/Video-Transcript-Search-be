@@ -24,6 +24,11 @@ class TranscriptItem(BaseModel):
     timestamp: int  
     text: str
 
+class TranscriptSegment(BaseModel):
+    start: float
+    end: float
+    text: str
+
 # Define the Video model
 class VideoCreate(BaseModel):
     name: str

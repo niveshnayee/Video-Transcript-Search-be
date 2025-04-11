@@ -2,19 +2,17 @@
 import logging
 from pathlib import Path
 from app.utils.video_utils import VideoUtils
-from app.services.transcription_api import TranscriptionService
-from app.utils.file_cleanup import FileCleanup
-from app.database import MongoDBClient
-from bson import ObjectId
 from app.tasks.celery_worker import celery
 
 
 
 
 class VideoProcessingService:
-    def __init__(self):
-        self.db_client = MongoDBClient()
-        self.videos_collection = self.db_client.get_collection("videos")
+    def __init__(self, video_utils, file_cleanup, transcription_service, video_repo):
+        self.video_utils = video_utils
+        self.file_cleanup = file_cleanup
+        self.transcription_service = transcription_service
+        self.video_repo = video_repo
 
     @celery.task(bind=True, name="app.services.video_processing.process_video_from_url", retry_backoff=5, max_retries=3)
     def process_video_from_url(self, file_id: str, video_url: str):
@@ -32,20 +30,24 @@ class VideoProcessingService:
             )
 
             # Save the video locally
-            video_path = VideoUtils.save_uploaded_video(video_url)
+            video_path = self.video_utils.save_uploaded_video(video_url)
 
             # Extract audio from the video
             audio_path = str(Path(video_path).with_suffix(".wav"))
-            VideoUtils.extract_audio(video_path, audio_path)
+            self.video_utils.extract_audio(video_path, audio_path)
 
             # Generate a transcript from the audio
-            transcript = TranscriptionService.transcribe_audio_with_timestamps(audio_path)
+            segmets = self.transcription_service.transcribe(audio_path)
+            transcript = self.transcription_service.format_transcript(segments)
 
-            # Update the video status to "completed" and save the transcript
-            self.videos_collection.update_one(
-                {"_id": ObjectId(file_id)},
-                {"$set": {"status": "completed", "transcript": transcript}}
-            )
+
+            self.video_repo.add_transcript(file_id, transcript)
+            self.video_repo.update_status(file_id, "completed")
+
+
+            return {"video_id": video_id, "status": "success"}
+
+            
         except Exception as e:
             # Log the error and update the video status to "failed"
             logging.error(f"Error processing video {file_id}: {str(e)}", exc_info=True)

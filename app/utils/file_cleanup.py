@@ -11,20 +11,3 @@ class FileCleanup:
                 os.remove(file_path)
 
 
-
-
-
-
-
-
-
-# def search_transcript(transcript: list, query: str) -> list:
-#     results = []
-#     for segment in transcript:
-#         if query.lower() in segment['text'].lower():
-#             results.append({
-#                 "text": segment['text'],
-#                 "start": segment['start'],
-#                 "duration": segment['duration']
-#             })
-#     return results
