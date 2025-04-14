@@ -18,6 +18,9 @@ from app.services.storage_service import StorageService
 from app.utils.file_cleanup import FileCleanup
 from app.database import MongoDBClient
 from app.utils.video_utils import VideoUtils
+from app.services.search_transcript.basic_search import BasicSearch
+from app.services.search_transcript.search_service import SearchStrategy
+from app.services.search_transcript.semantic_search import SemanticSearch
 
 
 router = APIRouter()
@@ -41,16 +44,16 @@ def get_processing_service():
         transcription_service=WhisperTranscriptionService(),
         video_repo=get_video_repo()
     )
+
+def get_search_strategy(method: str = "basic") -> SearchStrategy:
+    strategies = {
+        "basic": BasicSearch,
+        "semantic": SemanticSearch,
+    }
+    return strategies[method]()
     
 
 
-
-# Set Google Cloud credentials (ensure the key file is in your working directory)
-# os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-# Define your bucket name
-# BUCKET_NAME = os.getenv("BUCKET_NAME")
-# Initialize the Google Cloud Storage client
-# storage_client = storage.Client()
 
 @router.get("/videos", response_model=VideoResponse)
 async def get_all_videos(repo: VideoRepository = Depends(get_video_repo)):
@@ -129,8 +132,6 @@ def delete_video(
         if not video_data:
             raise HTTPException(status_code=404, detail="Video not found")
 
-        # Step 2: Get the unique filename of the video
-        # unique_filename = video_data["file_id"]
 
          # Delete from storage
         storage.delete_file(video_data.file_id)
@@ -197,8 +198,7 @@ def upload_video(
             file_id=fileId,
             status = "queued"  # Initial status
         )
-        # video_dict = video_data.dict()
-        # inserted_id = videos_collection.insert_one(video_dict).inserted_id
+   
 
          # Save to database
         video_id = repo.create_video(video_data.dict())
@@ -207,8 +207,6 @@ def upload_video(
         task = processing.process_video_task.delay(str(video_id), video_data.url)
 
 
-        # Step 5: Start background task for transcription
-        # background_tasks.add_task(process_video_from_url, str(inserted_id), video_url)
 
         #  # Start Celery task
         # task = VideoProcessingService.process_video_from_url.apply_async(args=[str(inserted_id), video_url])  # Updated task call
@@ -220,7 +218,7 @@ def upload_video(
                 success=True,
                 message="Video uploaded and processing started successfully",
                 data={
-                    "video_id": str(inserted_id),
+                    "video_id": str(video_id),
                     "name": video_name,
                     "category": video_category,
                     "description": video_description,
@@ -280,19 +278,25 @@ async def search_transcript(
         if not video_url:
             raise HTTPException(status_code=404, detail="Video URL not found")
 
+        # Get search strategy based on method
+        strategy = get_search_strategy("semantic")
+        # strategy = get_search_strategy("basic")
+        results = strategy.search(query.query.lower(), transcript, video_url)
+
+
         # Search in the transcript
-        results = []
-        for idx, entry in enumerate(transcript):
-            if query.query.lower() in entry["text"].lower():
-                results.append({
-                    "seconds": entry["timestamp"],
-                    "time": seconds_to_video_time(entry["timestamp"]),
-                    "text": " ".join(
-                        [entry["text"]] +
-                        [transcript[i]["text"] for i in range(idx + 1, min(idx + 4, len(transcript)))]
-                    ),
-                    "video_link": f"{video_url}#t={int(entry['timestamp'])}s"
-                })
+        # results = []
+        # for idx, entry in enumerate(transcript):
+        #     if query.query.lower() in entry["text"].lower():
+        #         results.append({
+        #             "seconds": entry["timestamp"],
+        #             "time": seconds_to_video_time(entry["timestamp"]),
+        #             "text": " ".join(
+        #                 [entry["text"]] +
+        #                 [transcript[i]["text"] for i in range(idx + 1, min(idx + 4, len(transcript)))]
+        #             ),
+        #             "video_link": f"{video_url}#t={int(entry['timestamp'])}s"
+        #         })
 
         if not results:
             return JSONResponse(
@@ -316,14 +320,6 @@ async def search_transcript(
             status_code=500,
             content={"success": False, "message": f"Error searching transcript: {str(e)}", "data": None},
         )
-
-def seconds_to_video_time(seconds):
-
-    minutes, remaining_seconds = divmod(seconds, 60)
-
-    video_time = f"{minutes:.0f}:{(remaining_seconds / 60):.2f}"
-
-    return video_time
 
 
 @router.post("/transcribe_video")
