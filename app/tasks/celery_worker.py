@@ -1,14 +1,26 @@
+import os
+
 from celery import Celery
+from dotenv import load_dotenv
+
+load_dotenv()
+
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 # Define Celery app
 celery = Celery(
     "worker",
-    broker="redis://localhost:6379/0",  # Redis as the message broker
-    backend="redis://localhost:6379/0",  # Store results in Redis
+    broker=redis_url,  # Redis as the message broker
+    backend=redis_url,  # Store results in Redis
 )
 
 celery.conf.update(
-    task_routes={"app.services.video_processing.process_video_from_url": {"queue": "transcriptions"}},
+    task_default_queue="transcriptions",
+    task_routes={
+        "app.services.video.video_processing.process_video_background_task": {
+            "queue": "transcriptions"
+        }
+    },
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
@@ -16,5 +28,5 @@ celery.conf.update(
     result_expires=3600,  # Task results expire in 1 hour
 )
 
-# Automatically discover tasks in the `app.services` module
-celery.autodiscover_tasks(["app.services.video_processing"])
+# Import the module that registers the video processing task.
+celery.conf.imports = ("app.services.video.video_processing",)

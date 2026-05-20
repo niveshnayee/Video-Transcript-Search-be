@@ -1,16 +1,46 @@
 import requests
-from fastapi import HTTPException
 import os
+import shutil
+import subprocess
 from pathlib import Path
 from tempfile import gettempdir
-from moviepy.editor import VideoFileClip
 from yt_dlp import YoutubeDL
 
 import re
 
 class VideoUtils:
+    HOMEBREW_FFMPEG_PATHS = (
+        "/opt/homebrew/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+    )
+
     @staticmethod
-    def save_uploaded_video(video_url) -> str:
+    def get_ffmpeg_executable() -> str:
+        """Find an ffmpeg executable from PATH, Homebrew, or imageio-ffmpeg."""
+        ffmpeg_path = os.getenv("FFMPEG_BINARY")
+        if ffmpeg_path and Path(ffmpeg_path).exists():
+            return ffmpeg_path
+
+        ffmpeg_path = shutil.which("ffmpeg")
+        if ffmpeg_path:
+            return ffmpeg_path
+
+        for candidate in VideoUtils.HOMEBREW_FFMPEG_PATHS:
+            if Path(candidate).exists():
+                return candidate
+
+        try:
+            import imageio_ffmpeg
+
+            return imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception as e:
+            raise RuntimeError(
+                "ffmpeg is required to extract audio but was not found. "
+                "Install it with 'brew install ffmpeg' or run 'uv pip install -r requirements.txt'."
+            ) from e
+
+    @staticmethod
+    def save_uploaded_video(video_url: str) -> str:
         """
         Save an uploaded video file to a temporary directory.
         """
@@ -43,24 +73,42 @@ class VideoUtils:
             if not video_path or not output_audio_path:
                 raise ValueError("Invalid paths provided for video or audio extraction")
 
-            clip = VideoFileClip(video_path)
-            if not clip.audio:
-                raise HTTPException(status_code=400, detail="Video file has no audio track")
+            output_path = Path(output_audio_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            ffmpeg = VideoUtils.get_ffmpeg_executable()
 
-            clip.audio.write_audiofile(
-                output_audio_path, 
-                codec='pcm_s16le',
-                verbose=True,  # Add this to enable detailed FFmpeg logs
-                logger="bar"   # This will show the MoviePy progress bar
-                )
+            command = [
+                ffmpeg,
+                "-y",
+                "-i",
+                video_path,
+                "-vn",
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                output_audio_path,
+            ]
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                error_output = result.stderr.strip() or result.stdout.strip()
+                raise RuntimeError(error_output or "ffmpeg failed to extract audio")
 
-            clip.close()  # Ensure resources are released
             return output_audio_path
+        except FileNotFoundError as e:
+            raise RuntimeError(
+                "ffmpeg is required to extract audio but was not found. "
+                "Install it with 'brew install ffmpeg' or run 'uv pip install -r requirements.txt'."
+            ) from e
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to extract audio: {str(e)}")
-        finally:
-            if 'clip' in locals():
-                clip.close()  # Clean up MoviePy resources
+            raise RuntimeError(f"Failed to extract audio: {str(e)}") from e
 
     @staticmethod
     def download_youtube_video_audio(video_url: str, output_path: str):

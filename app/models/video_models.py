@@ -31,11 +31,14 @@ class TranscriptSegment(BaseModel):
 
 # Define the Video model
 class VideoCreate(BaseModel):
+    submission_id: str
     name: str
     category: str
     description: str
     url: str  # URL 
-    file_id : str
+    file_id: str
+    storage_type: Optional[str] = "r2"
+    status: Optional[str] = "queued"
     transcript: Optional[List[TranscriptItem]] = []  # List of TranscriptItem objects
     
 
