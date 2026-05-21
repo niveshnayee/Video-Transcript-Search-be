@@ -1,4 +1,3 @@
-import whisper
 from typing import List
 from app.models.video_models import TranscriptSegment
 from app.services.transcription.transcription_service import TranscriptionService
@@ -8,6 +7,8 @@ MODEL_SIZE = Constants.whisper_model_size.value
 
 class WhisperTranscriptionService(TranscriptionService):
     def __init__(self):
+        import whisper
+
         self.model = whisper.load_model(MODEL_SIZE)
 
     def transcribe(self, audio_path: str) -> List[TranscriptSegment]:

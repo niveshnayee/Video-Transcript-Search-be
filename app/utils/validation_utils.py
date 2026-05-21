@@ -36,8 +36,10 @@ def extract_youtube_video_id(url: str) -> Optional[str]:
 
 def validate_file_size(file_size: int) -> None:
     """Validate file size against limits."""
-    from app.exceptions import FileTooLargeException
+    from app.exceptions import FileTooLargeException, InvalidFileSizeException
 
+    if file_size <= 0:
+        raise InvalidFileSizeException(file_size)
     if file_size > Constants.max_file_size_bytes:
         raise FileTooLargeException(file_size, Constants.max_file_size_bytes)
 

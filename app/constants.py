@@ -60,9 +60,6 @@ class Constants:
     redis_url: str = "redis://localhost:6379/0"
     result_expiration_seconds: int = 3600
 
-    # ── CORS
-    allowed_origins: List[str] = ["http://localhost:4200"]
-
     # ── R2 Storage
     signature_version: str = "s3v4"
     content_type_video: str = "video/mp4"
@@ -78,6 +75,7 @@ class Constants:
     ERROR_TRANSCRIPT_NOT_FOUND: str = "Transcript not found for this video"
     ERROR_STORAGE_LIMIT_EXCEEDED: str = "Storage limit exceeded"
     ERROR_FILE_TOO_LARGE: str = "File size exceeds maximum allowed limit"
+    ERROR_INVALID_FILE_SIZE: str = "File size must be greater than zero"
     ERROR_INVALID_FILE_TYPE: str = "Invalid file type. Only video files are allowed"
     ERROR_YOUTUBE_URL_INVALID: str = "Invalid YouTube URL"
     ERROR_TRANSCRIPTION_FAILED: str = "Transcription failed"

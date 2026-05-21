@@ -1,10 +1,9 @@
 import uuid
 from typing import Tuple
-import boto3
-from botocore.client import Config
 from app.config import r2_config
 from app.constants import Constants
-from app.utils.validation_utils import validate_file_extension, validate_file_size
+from app.exceptions import StorageLimitExceededException
+from app.utils.validation_utils import sanitize_filename, validate_file_extension, validate_file_size
 
 
 class StorageService:
@@ -13,6 +12,9 @@ class StorageService:
         self.account_id = r2_config.account_id
         self.access_key = r2_config.access_key_id
         self.secret_key = r2_config.secret_access_key
+
+        import boto3
+        from botocore.client import Config
 
         self.client = boto3.client(
             's3',
@@ -23,10 +25,13 @@ class StorageService:
         )
 
     def generate_presigned_url(self, file_name: str, file_size: int, expiration: int = Constants.presigned_url_expiration_minutes) -> Tuple[str, str]:
-        validate_file_extension(file_name)
+        safe_file_name = sanitize_filename(file_name)
+        validate_file_extension(safe_file_name)
         validate_file_size(file_size)
+        if self.get_total_size() + file_size > Constants.max_total_storage_bytes:
+            raise StorageLimitExceededException()
 
-        object_name = f"{uuid.uuid4().hex}_{file_name}"
+        object_name = f"{uuid.uuid4().hex}_{safe_file_name}"
         upload_url = self.client.generate_presigned_url(
             'put_object',
             Params={
@@ -44,6 +49,10 @@ class StorageService:
     def get_file_size(self, object_name: str) -> int:
         response = self.client.head_object(Bucket=self.bucket_name, Key=object_name)
         return response['ContentLength']
+
+    def validate_existing_video_file(self, object_name: str) -> None:
+        validate_file_extension(object_name)
+        validate_file_size(self.get_file_size(object_name))
 
     def get_total_size(self) -> int:
         total_size = 0

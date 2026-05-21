@@ -1,10 +1,8 @@
-import requests
 import os
 import shutil
 import subprocess
 from pathlib import Path
 from tempfile import gettempdir
-from yt_dlp import YoutubeDL
 
 import re
 
@@ -45,6 +43,8 @@ class VideoUtils:
         Save an uploaded video file to a temporary directory.
         """
         try:
+            import requests
+
             temp_dir = Path(gettempdir()) / "uploaded_videos"
             temp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -115,6 +115,8 @@ class VideoUtils:
         """
         Download the audio of a YouTube video using yt-dlp.
         """
+        from yt_dlp import YoutubeDL
+
         ydl_opts = {
             'format': 'bestaudio/best',
             'outtmpl': output_path,

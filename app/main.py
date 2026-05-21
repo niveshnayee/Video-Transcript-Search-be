@@ -5,7 +5,6 @@ from app.routers import video_router, r2_router
 from app.config import app_config
 from app.logging_config import setup_logging, get_logger
 from app.exceptions import AppException
-from app.constants import Constants
 
 # Setup logging
 setup_logging(app_config.log_level)
@@ -19,7 +18,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=Constants.allowed_origins,
+    allow_origins=app_config.cors_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

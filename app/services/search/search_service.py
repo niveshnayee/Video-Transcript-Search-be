@@ -8,7 +8,7 @@ class SearchStrategy(ABC):
         pass
 
     def seconds_to_video_time(self, seconds: float) -> str:
-        minutes, remaining_seconds = divmod(seconds, 60)
-        video_time = f"{minutes:.0f}:{(remaining_seconds / 60):.2f}"
-        return video_time
+        total_seconds = max(0, int(seconds))
+        minutes, remaining_seconds = divmod(total_seconds, 60)
+        return f"{minutes}:{remaining_seconds:02d}"
     

@@ -17,7 +17,7 @@ class UploadRequest(BaseModel):
     category: Optional[str] = None
     description: Optional[str] = None
 
-    @root_validator
+    @root_validator(skip_on_failure=True)
     def validate_request(cls, values):
         url = values.get("url")
         file_id = values.get("file_id")

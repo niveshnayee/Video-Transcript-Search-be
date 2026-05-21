@@ -61,6 +61,7 @@ class VideoService:
 
     def upload_r2_video(self, request: UploadRequest) -> str:
         """Register metadata for a video already uploaded to R2."""
+        self.storage_service.validate_existing_video_file(request.file_id)
         video_data: dict[str, Any] = {
             "submission_id": self.build_submission_id(request.submission_id),
             "name": request.name or "",

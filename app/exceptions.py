@@ -80,6 +80,16 @@ class FileTooLargeException(AppException):
         )
 
 
+class InvalidFileSizeException(AppException):
+    def __init__(self, file_size: int) -> None:
+        super().__init__(
+            message=Constants.ERROR_INVALID_FILE_SIZE,
+            code="INVALID_FILE_SIZE",
+            status_code=400,
+            details=f"File size {file_size} bytes must be greater than zero"
+        )
+
+
 class InvalidFileTypeException(AppException):
     def __init__(self, file_extension: str) -> None:
         super().__init__(

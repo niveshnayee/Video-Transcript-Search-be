@@ -187,4 +187,7 @@ def create_video_processing_service() -> VideoProcessingService:
 )
 def process_video_background_task(self: Any, video_id: str) -> Dict[str, str]:
     service = create_video_processing_service()
-    return service.process_video(video_id)
+    try:
+        return service.process_video(video_id)
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc
